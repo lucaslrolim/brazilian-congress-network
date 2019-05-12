@@ -1,0 +1,9 @@
+*.csv
+*.png
+*.jpg
+*.pyc
+*.zip
+/source/__pycache__/
+/miners/__pycache__/
+/notebooks/.ipynb_checkpoints/
+/notebooks/tables/
