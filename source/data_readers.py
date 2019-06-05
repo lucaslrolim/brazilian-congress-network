@@ -10,8 +10,8 @@ def getDeputies():
 
 def getInfoTSE():
     tse_info = pd.read_csv("../data/candidates_tse_info.csv", sep=',')
-    tse_info['CPF'].fillna(0.0).astype(int)
-    tse_info.set_index('CPF', inplace=True)
+    tse_info['NR_CPF_CANDIDATO'].fillna(0.0).astype(int)
+    tse_info.set_index('NR_CPF_CANDIDATO', inplace=True)
     return tse_info.to_dict('index')
 
 

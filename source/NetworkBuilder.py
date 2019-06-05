@@ -6,11 +6,12 @@ import ast
 import model_parameters
 import random
 import ast
+from datetime import date
 import data_readers
 from utils import calculateAge
 from utils import getAgeRange
 from utils import generateEdges
-
+from utils import getUfRegion
 
 class NetworkBuilder():
     deputies = None
@@ -37,6 +38,9 @@ class NetworkBuilder():
         self.parties = data_readers.getParties()
         self.proposal_authors = data_readers.getAuthors()
         self.tse_info = data_readers.getInfoTSE()
+        self.setDeputiesRegion()
+        self.setDeputiesIndividualProposals()
+        self.setDeputiesRoleInfluence()
 
     def buildNetwork(self):
         self.G = nx.Graph()
@@ -44,8 +48,11 @@ class NetworkBuilder():
         self.addEdges()
         self.removePastDeputies()
 
-    def saveNetWork(self, network_name="coauthorship-network"):
-        nx.write_gexf(self.G, "../data/networks/{}.gexf".format(network_name))
+    def saveNetWork(self, network_name="coauthorship-network", use_version=True):
+        if(use_version):
+            nx.write_gexf(self.G, "../data/networks/{}-{}.gexf".format(network_name, date.today()))
+        else:
+            nx.write_gexf(self.G, "../data/networks/{}.gexf".format(network_name))
 
     def addNodes(self):
         out_of_date_deputies = []
@@ -56,6 +63,7 @@ class NetworkBuilder():
                 cpf = self.deputies[deputy_id]['cpf']
                 party = self.deputies[deputy_id]['party']
                 uf = self.deputies[deputy_id]['uf']
+                region = self.deputies[deputy_id]['region']
                 label = self.deputies[deputy_id]['name']
                 sex = self.deputies[deputy_id]['sex']
                 education = self.deputies[deputy_id]['education']
@@ -77,7 +85,7 @@ class NetworkBuilder():
                 self.G.add_node(
                     deputy_id, label=label, style='filled', weight=deputy_weight, party=party, uf=uf,
                     age_range=age_range, sex=sex, education=education, age=age,
-                    education_tse=education_tse, ethnicity=ethnicity
+                    education_tse=education_tse, ethnicity=ethnicity, region=region
                     )
             else:
                 out_of_date_deputies.append(deputy_id)
@@ -235,3 +243,11 @@ class NetworkBuilder():
                     deputies_weight[deputy_id] = weight
 
         self.roles_relevance = deputies_weight
+
+    def setDeputiesRegion(self):
+        '''
+        Com base na unidade da federação do deputado, adiciona a região a qual ele pertence
+        '''
+        for deputy_id in self.deputies_ids:
+            uf = self.deputies[deputy_id]['uf']
+            self.deputies[deputy_id]['region'] = getUfRegion(uf)

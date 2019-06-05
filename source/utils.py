@@ -4,11 +4,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def calculateAge(date):
+def calculateAge(b_date):
     '''
     Calcula a idade baseado na data de nascimento
     '''
-    born = datetime.datetime.strptime(self.deputies_dict[deputy_id]['birthdate'], "%Y-%m-%d")
+    born = datetime.datetime.strptime(b_date, "%Y-%m-%d")
     today = date.today()
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
@@ -107,3 +107,35 @@ def getThresholdCounts(data, threshold, tolerance=0):
         elif(element < threshold):
             ret["minor"] += 1
     return ret
+
+def getUfRegion(uf):
+    regions_dict = {
+        "AM": "Norte",
+        "RR": "Norte",
+        "AP": "Norte",
+        "PA": "Norte",
+        "TO": "Norte",
+        "RO": "Norte",
+        "AC": "Norte",
+        "MA": "Nordeste",
+        "PI": "Nordeste",
+        "CE": "Nordeste",
+        "RN": "Nordeste",
+        "PE": "Nordeste",
+        "PB": "Nordeste",
+        "SE": "Nordeste",
+        "AL": "Nordeste",
+        "BA": "Nordeste",
+        "MT": "Centro-Oeste",
+        "MS": "Centro-Oeste",
+        "GO": "Centro-Oeste",
+        "DF": "Distrito Federal",
+        "SP": "Sudeste",
+        "RJ": "Sudeste",
+        "ES": "Sudeste",
+        "MG": "Sudeste",
+        "PR": "Sul",
+        "RS": "Sul",
+        "SC": "Sul"
+    }
+    return regions_dict[uf]

@@ -12,6 +12,7 @@ class TSEMiner(Miner):
     infos = []
     output_path = "../data/candidates/"
     output_zip_path = "../data/candidates/temp/"
+    main_data_path = "../data/"
     valid_years = [2014, 2018, 2022]
     election_years = []
     data = None
@@ -29,14 +30,14 @@ class TSEMiner(Miner):
 
     def createDataframe(self):
         for year in self.election_years:
-                candidates = pd.read_csv("../data/candidates/consulta_cand_{}_BRASIL.csv".format(year), sep=';', encoding='latin1')
+                candidates = pd.read_csv("../data/candidates/consulta_cand_{}_BRASIL.csv".format(year), sep=';', encoding='latin1', low_memory=False)
                 candidates = candidates[['NM_CANDIDATO', 'NR_CPF_CANDIDATO', 'SG_PARTIDO', 'NM_COLIGACAO', 'SG_UF_NASCIMENTO', 'DS_GRAU_INSTRUCAO', 'DS_COR_RACA']]
                 candidates.replace('"', '')
                 self.infos.append(candidates)
         self.data = pd.concat(self.infos)
 
     def save2CSV(self):
-        self.data.to_csv(self.output_path + 'candidates_tse_info.csv', header=True, index=False)
+        self.data.to_csv(self.main_data_path + 'candidates_tse_info.csv', header=True, index=False)
 
     def dowloadZip(self):
         printProgressBar(0, len(self.years), prefix='Fazendo download de arquivos .zip:', suffix='Complete', length=50)
@@ -48,9 +49,11 @@ class TSEMiner(Miner):
 
             if not os.path.exists(path):
                 os.makedirs(path)
+
+            path = self.output_path.format(file_name=file_name)
             with open(os.path.join(self.output_zip_path, file_name), 'wb') as f:
                 f.write(response.content)
-            f.close()
+                f.close()
         pass
 
     def extractFile(self):
