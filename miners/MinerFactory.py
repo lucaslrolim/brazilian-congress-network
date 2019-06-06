@@ -1,11 +1,11 @@
 import json
-from APIProposalMiner import APIProposalMiner
-from AuthorsMiner import AuthorsMiner
-from DeputiesMiner import DeputiesMiner
-from PartiesMiner import PartiesMiner
-from ProposalsMiner import ProposalsMiner
-from RolesMiner import RolesMiner
-from TSEMiner import TSEMiner
+from .APIProposalMiner import APIProposalMiner
+from .AuthorsMiner import AuthorsMiner
+from .DeputiesMiner import DeputiesMiner
+from .PartiesMiner import PartiesMiner
+from .ProposalsMiner import ProposalsMiner
+from .RolesMiner import RolesMiner
+from .TSEMiner import TSEMiner
 
 
 class MinerFactory():

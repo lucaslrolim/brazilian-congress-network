@@ -3,15 +3,15 @@ import networkx as nx
 import pydot
 import random
 import ast
-import model_parameters
+from .model_parameters import *
+from .data_readers import *
 import random
 import ast
 from datetime import date
-import data_readers
-from utils import calculateAge
-from utils import getAgeRange
-from utils import generateEdges
-from utils import getUfRegion
+from .utils import calculateAge
+from .utils import getAgeRange
+from .utils import generateEdges
+from .utils import getUfRegion
 
 class NetworkBuilder():
     deputies = None
@@ -31,30 +31,35 @@ class NetworkBuilder():
     collab_pertinence = {}
 
     def __init__(self):
-        self.deputies = data_readers.getDeputies()
+        print("Carregando informações...")
+        self.deputies = getDeputies()
         self.deputies_ids = list(self.deputies.keys())
-        self.proposals = data_readers.getProposals()
-        self.legislative_roles = data_readers.getRoles()
-        self.parties = data_readers.getParties()
-        self.proposal_authors = data_readers.getAuthors()
-        self.tse_info = data_readers.getInfoTSE()
+        self.proposals = getProposals()
+        self.legislative_roles = getRoles()
+        self.parties = getParties()
+        self.proposal_authors = getAuthors()
+        self.tse_info = getInfoTSE()
         self.setDeputiesRegion()
         self.setDeputiesIndividualProposals()
         self.setDeputiesRoleInfluence()
 
-    def buildNetwork(self):
+    def buildNetwork(self, weighted = True):
+        self.weighted_network = weighted
         self.G = nx.Graph()
         self.addNodes()
         self.addEdges()
         self.removePastDeputies()
 
     def saveNetWork(self, network_name="coauthorship-network", use_version=True):
+        print("Salvando a rede...")
         if(use_version):
             nx.write_gexf(self.G, "../data/networks/{}-{}.gexf".format(network_name, date.today()))
         else:
             nx.write_gexf(self.G, "../data/networks/{}.gexf".format(network_name))
+        print("Rede salva em: {}".format("../data/networks/"))
 
     def addNodes(self):
+        print("Gerando vértices...")
         out_of_date_deputies = []
 
         for deputy_id in self.deputies_ids:
@@ -73,12 +78,12 @@ class NetworkBuilder():
                 age_range = getAgeRange(age)
 
                 if (deputy_id in self.deputies_proposals):
-                    individual_proposals = self.deputies_proposals[deputy_id] * model_parameters.node_parameters['proposal']
+                    individual_proposals = self.deputies_proposals[deputy_id] * node_parameters['proposal']
                 else:
                     individual_proposals = 0
 
                 if (deputy_id in self.roles_relevance):
-                    role_relevance = self.roles_relevance[deputy_id] * model_parameters.node_parameters['role']
+                    role_relevance = self.roles_relevance[deputy_id] * node_parameters['role']
                 else:
                     role_relevance = 0
                 deputy_weight = individual_proposals + role_relevance
@@ -91,11 +96,16 @@ class NetworkBuilder():
                 out_of_date_deputies.append(deputy_id)
 
     def addEdges(self):
+        print("Adicionando arestas...")
         self.setCollaborations()
         self.setCollaborationsSuccess()
         for edge in self.collab_weights.keys():
+            if(self.weighted_network):
+                weight = self.collab_weights[edge]
+            else:
+                weight = 1
             self.G.add_edge(
-                edge[0], edge[1], weight=self.collab_weights[edge], success_pertinence=self.collab_pertinence[edge]
+                edge[0], edge[1], weight= weight, success_pertinence=self.collab_pertinence[edge]
             )
     
     def removePastDeputies(self):
@@ -111,11 +121,11 @@ class NetworkBuilder():
             if proposal_id in list(self.proposal_authors.keys()):
                 proposal_authors = self.proposal_authors[proposal_id]
                 proposal_type = self.proposals[proposal_id]['siglaTipo']
-                proposal_weight = model_parameters.proposal_weight[proposal_type]
+                n_proposal_weight = proposal_weight[proposal_type]
                 # proposals with only one author add node weight and will not be considered agai
                 if(len(proposal_authors) > 1):
                     self.collab_weights = self.addCollabEdge(
-                        self.collab_weights, proposal_authors, proposal_weight, False
+                        self.collab_weights, proposal_authors, n_proposal_weight, False
                     )
 
     def addCollabEdge(self, graph, collab_list, proposal_weight, archived):
@@ -157,14 +167,14 @@ class NetworkBuilder():
                 proposal_authors = self.proposal_authors[proposal_id]
                 proposal_type = self.proposals[proposal_id]['siglaTipo']
                 proposal_status = int(self.proposals[proposal_id]['ultimoStatus_idSituacao'])
-                proposal_weight = model_parameters.proposal_weight[proposal_type]
+                n_proposal_weight = proposal_weight[proposal_type]
 
                 status_pertinence = 0
-                for status in model_parameters.positive_proposal_status:
+                for status in positive_proposal_status:
                     if(int(proposal_status) == status['status_code']):
                         status_pertinence = status['positive_pertinence']
 
-                pertinence_weighted = proposal_weight * status_pertinence
+                pertinence_weighted = n_proposal_weight * status_pertinence
                 # proposals with only one author add node weight and will not be considered agai
                 if(len(proposal_authors) > 1):
                     self.collab_pertinence = self.addCollabPertinence(
@@ -183,12 +193,11 @@ class NetworkBuilder():
             if (n_authors == 1 and (proposal_id in list(self.proposals.keys()))):
                 author_id = authors_list[0]
                 proposal_type = self.proposals[proposal_id]['siglaTipo']
-                proposal_weight = model_parameters.proposal_weight[proposal_type]
-
+                n_proposal_weight = proposal_weight[proposal_type]
                 if(author_id in deputies_weight):
-                    deputies_weight[author_id] += proposal_weight
+                    deputies_weight[author_id] += n_proposal_weight
                 else:
-                    deputies_weight[author_id] = proposal_weight
+                    deputies_weight[author_id] = n_proposal_weight
         self.deputies_proposals = deputies_weight
 
     def setDeputiesIndividualSuccessProposals(self):
@@ -205,10 +214,10 @@ class NetworkBuilder():
                 author_id = authors_list[0]
                 proposal_type = self.proposals[proposal_id]['siglaTipo']
                 proposal_status = int(self.proposals[proposal_id]['ultimoStatus_idSituacao'])
-                proposal_weight = model_parameters.proposal_weight[proposal_type]
+                proposal_weight = proposal_weight[proposal_type]
                 status_pertinence = 0
 
-                for status in model_parameters.positive_proposal_status:
+                for status in positive_proposal_status:
                     if(int(proposal_status) == status['status_code']):
                         status_pertinence = status['positive_pertinence']
                 pertinence_weighted = proposal_weight * status_pertinence
@@ -226,7 +235,7 @@ class NetworkBuilder():
         referentes as legislaturas selecionadas
         '''
         deputies_weight = {}
-        role_weight_dict = model_parameters.role_weights
+        role_weight_dict = role_weights
         for deputy_id, role in self.legislative_roles.iterrows():
             role_name = role['role_name']
             deputy_id = str(deputy_id)

@@ -1,8 +1,8 @@
-from AbstractMiner import Miner
+from .AbstractMiner import Miner
 import pandas as pd
 import requests
 import csv
-from utils import addLegislature
+from .utils import addLegislature
 
 
 class PartiesMiner(Miner):

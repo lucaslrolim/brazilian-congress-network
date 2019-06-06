@@ -1,11 +1,11 @@
-from AbstractMiner import Miner
+from .AbstractMiner import Miner
 import pandas as pd
 import ast
 import sys
 import requests
 import os
 import zipfile
-from utils import printProgressBar
+from .utils import printProgressBar
 
 class TSEMiner(Miner):
     proposal_types = ["PL", "PEC", "PLN", "PLP", "PLV", "PLC"]

@@ -1,8 +1,8 @@
-from AbstractMiner import Miner
+from .AbstractMiner import Miner
 
 import pandas as pd
 import requests
-from utils import printProgressBar
+from .utils import printProgressBar
 
 
 class DeputiesMiner(Miner):
