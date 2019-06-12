@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
 def calculateAge(b_date):
     '''
     Calcula a idade baseado na data de nascimento
