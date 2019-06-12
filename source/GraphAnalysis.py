@@ -6,9 +6,9 @@ import collections
 import matplotlib.pyplot as plt
 import copy
 import pandas as pd
-from utils import reject_outliers
-from utils import generateNodePairs
-from utils import getThresholdCounts
+from .utils import reject_outliers
+from .utils import generateNodePairs
+from .utils import getThresholdCounts
 
 
 class GraphAnalysis:
@@ -234,6 +234,381 @@ class GraphAnalysis:
 
         return attribute_nodes
 
+    def countNodesByAttribute(self):
+        '''
+        Retorna um dicionário de dicionários, com o número de vértices que possui cada um dos subgrupos possíveis
+        de cada atributo.
+
+        Por exemplo, nesse dicionário temos a chave ¨party¨, que possui como valor um dicionário em que cada chave é
+        um partido político e o valor é o número de deputados com aquele partido na rede.
+        '''
+        count_attributes = {}
+        attributes_list = ['age_range', 'education', 'party', 'sex', 'uf', 'ethnicity', 'education_tse']
+
+        for att in attributes_list:
+            count_attributes[att] = {}
+
+        for node in self.graph.nodes(data=True):
+            try:
+                    for node_att in list(node[1].items()):
+                        node_att_name = node_att[0]
+                        node_att_value = node_att[1]
+                        if node_att_name in attributes_list:
+                            if(node_att_value in count_attributes[node_att_name]):
+                                count_attributes[node_att_name][node_att_value] += 1
+                            else:
+                                count_attributes[node_att_name][node_att_value] = 1
+            except:
+                pass
+
+        return count_attributes
+
+    def adjMatrix(self, weighted=False):
+        size = len(self.graph.nodes())
+        adj_matrix = np.zeros((size, size))
+        matrix_map = {}
+        matrix_map['index_to_dep'] = {}
+        count = 0
+
+        for deputy_id in self.graph.nodes():
+            matrix_map[deputy_id] = count
+            matrix_map['index_to_dep'][count] = deputy_id
+            count += 1
+        for edge in self.graph.edges(data=True):
+            deputy_1 = edge[0]
+            deputy_2 = edge[1]
+            if(weighted):
+                weight = edge[2]['weight']
+            else:
+                weight = 1
+
+            adj_matrix[matrix_map[deputy_1]][matrix_map[deputy_2]] += weight
+            adj_matrix[matrix_map[deputy_2]][matrix_map[deputy_1]] += weight
+        return adj_matrix, matrix_map
+
+    def joinEdgesAttFraction(self, attribute, adj_matrix, m_map):
+        # total_weight retorma 2m, porem nao vamos iterar sobre as arestas duas vezes
+        total_weight = adj_matrix.sum() / 2
+        result = {}
+        for edge in self.graph.edges():
+            d1 = edge[0]
+            d2 = edge[1]
+            deputy_1 = self.getDeputyInfo(d1)
+            deputy_2 = self.getDeputyInfo(d2)
+            att_1 = deputy_1[1][attribute]
+            att_2 = deputy_2[1][attribute]
+
+            if(att_1 not in result):
+                result[att_1] = 0
+            if(att_1 == att_2):
+                result[att_1] += adj_matrix[m_map[d1]][m_map[d2]]
+
+        normalized_result = {k: v / total_weight for k, v in result.items()}
+        return normalized_result
+
+    def incidenceEdgesAttFraction(self, attribute, weighted=False):
+        result = {}
+        weights = self.getSumEdgeWeights()
+        total_weight = 0
+        for node in self.graph.nodes(data=True):
+            deputy_id = node[0]
+            deputy_att = node[1][attribute]
+
+            if(weighted):
+                weight = weights[deputy_id]
+            else:
+                weight = len(self.graph.neighbors(deputy_id))
+
+            total_weight += weight
+
+            if(deputy_att in result):
+                result[deputy_att] += weight
+            else:
+                result[deputy_att] = weight
+
+        normalized_result = {k: v / total_weight for k, v in result.items()}
+        return normalized_result
+
+    def modularity(self, attribute, weighted=False):
+        """
+        Retorna a modulatidade geral do atributo baseada na equação proposta por Newman
+        e também um dicionário com as modularidades de todos os valores possíveis do domínio
+        do atributo selecionado
+        """
+        adj_matrix, m_map = self.adjMatrix(weighted)
+        modularity_result = {}
+        e_r = self.joinEdgesAttFraction(attribute, adj_matrix, m_map)
+        a_r = self.incidenceEdgesAttFraction(attribute, weighted)
+
+        att_possibilies = list(e_r.keys())
+        att_modularity = 0
+        for att in att_possibilies:
+            modularity_result[att] = e_r[att] - pow(a_r[att], 2)
+            att_modularity += modularity_result[att]
+
+        return att_modularity, modularity_result
+
+    def modularitySummary(self, attributes_to_analyse=None, weighted=False):
+        if(attributes_to_analyse is not None):
+            attributes_to_analyse = self.getNodeAttributeNames()
+
+        attribute_modularity = {}
+        for attribute in attributes_to_analyse:
+            modularity = self.modularity(attribute, weighted)
+            attribute_modularity[attribute] = modularity
+
+        return attribute_modularity
+
+    def getExpectedWeightByAttribute(self, homophily_attribute, norm=True):
+        """
+        Calcula o valor esperado da distribuição de pesos de arestas incidentes por atributo do vértice
+        """
+        attribute_edges_weight = {}
+        graph_edge_weight = 0
+        for edge in self.graph.edges(data=True):
+            node_att_1 = self.getNodeAttribute(edge[0], homophily_attribute)
+            node_att_2 = self.getNodeAttribute(edge[1], homophily_attribute)
+            edge_weight = edge[2]['weight']
+
+            graph_edge_weight += edge_weight
+
+            if(node_att_1 in attribute_edges_weight):
+                attribute_edges_weight[node_att_1] += edge_weight
+            else:
+                attribute_edges_weight[node_att_1] = edge_weight
+
+            if(node_att_2 in attribute_edges_weight):
+                attribute_edges_weight[node_att_2] += edge_weight
+            else:
+                attribute_edges_weight[node_att_2] = edge_weight
+
+        if(norm):
+            attribute_edges_weight = {k: (v/2) / graph_edge_weight for k, v in attribute_edges_weight.items()}
+
+        return attribute_edges_weight
+
+    def getSumEdgeWeights(self):
+        """
+        Retorna dicionário com a soma dos pesos das arestas incidentes a cada vértice
+        """
+        weights = {}
+        for node in self.graph.nodes(data=True):
+            node_id = node[0]
+            node_edge_weights = 0
+            for neighbor in self.graph.neighbors(node_id):
+                node_edge_weights += self.graph[node_id][neighbor]['weight']
+            weights[node_id] = node_edge_weights
+        return weights
+
+    def nodesModularityByAttribute(self, attribute, weighted=False):
+        """
+        Retorna modularidade individual de todos os nós para um determinado atributo
+        """
+        network_result = {}
+        nodes_att = {}
+        for node in self.graph.nodes(data=True):
+            node_id = node[0]
+            base_attribute_value = node[1][attribute]
+            nodes_att[node_id] = base_attribute_value
+            w_homo = 0
+            w_total = 0
+            for neighbor_id in self.graph.neighbors(node_id):
+                edge_weigth = self.graph[node_id][neighbor_id]['weight']
+                neighbor = self.graph.node[neighbor_id]
+
+                if(weighted is True):
+                    weight = edge_weigth
+                else:
+                    weight = 1
+
+                w_total += weight
+                if(attribute in neighbor):                  
+                    if(neighbor[attribute] == base_attribute_value):
+                        w_homo += weight
+
+            if(w_total > 0):
+                network_result[node_id] = w_homo/w_total
+            else:
+                network_result[node_id] = None
+
+        result = {}
+        expected_distribution = self.getExpectedWeightByAttribute(attribute)
+
+        for node_id, homophily_percent in network_result.items():
+            if(homophily_percent is not None):
+                result[node_id] = homophily_percent - expected_distribution[nodes_att[node_id]]
+            else:
+                result[node_id] = None
+
+        return result
+
+    def nodesModularity(self, use_weight=False, attributes_to_analyse=None):
+        """
+        Modularidade individual do vértice, que é calculada com base no percentual do peso de arestas
+        incidentes ao vértice que são com vizinhos homofílicos
+        """
+        if(attributes_to_analyse is not None):
+            attributes_to_analyse = self.getNodeAttributeNames()
+        nodes_modularity = {}
+        node_degrees = self.graph.degree()
+        
+        for node_id, degree in node_degrees.items():
+            if(degree != 0):
+                nodes_modularity[node_id] = 0
+
+        for attribute in attributes_to_analyse:
+            modularity = self.nodesModularityByAttribute(attribute, weighted=use_weight)
+            for node_id in list(nodes_modularity.keys()):
+                nodes_modularity[node_id] += modularity[node_id]
+
+        return nodes_modularity
+
+    def plotDegreeDistribution(self, color='#7394CB'):
+        data = nx.degree_histogram(self.graph)
+        labels = {"title": 'CCDF grau dos vértices', 'xlabel': 'número de coautores', 'ylabel': '% de deputados'}
+        self.plotDistributionCCDF(data, labels, color)
+
+    def plotWeightDistribution(self, color='#7394CB'):
+        weights = list(self.getSumEdgeWeights().values())
+        data = np.zeros(int(max(weights)))
+        for i in range(len(data)):
+            i_count = weights.count(i)
+            data[i] = i_count
+        labels = {"title": 'CCDF do peso de arestas incidentes', 'xlabel': 'peso incidente', 'ylabel': '% de deputados'}
+        self.plotDistributionCCDF(data, labels, color)
+
+    def plotDistributionCCDF(self, data, labels, color='#7394CB'):
+        cumulative = np.cumsum(data)
+        ccdf = []
+        for element in cumulative:
+            prob = (element - cumulative[0])/(max(cumulative)-min(cumulative))
+            ccdf.append(1 - prob)    
+        label = list(range(len(data)))
+        plt.plot(label, ccdf, color=color)
+        plt.title(labels['title'])
+        plt.xlabel(labels['xlabel'])
+        plt.ylabel(labels['ylabel'])
+        plt.show()
+
+    def plotMixPattern(self, attribute, attribute_value):
+        mix_dict = nx.attribute_mixing_dict(self.graph, attribute)
+        norm_mix = self.mixingDictingToProb(mix_dict)
+
+        # O atributo abaixo define o valor de atributo que desejamos analisar o padrão de mixagem
+        # por exemplo, mixagem para o partido PT ou para o sexo Masculino
+        D = norm_mix[attribute_value]
+
+        plt.bar(range(len(D)), list(D.values()), align='center')
+        plt.xticks(range(len(D)), list(D.keys()), rotation='vertical')
+
+        plt.show()
+
+################################################################
+### Métodos legados, não utilizados na versão final do paper ###
+################################################################
+
+    def mixingMatrix(self, attribute, weighted=False, norm=True):
+        mix_dict = {}
+        matrix_dict = {}
+        # itera nas arestas da rede
+        for edge in self.graph.edges(data=True):
+            # coleta informacoes dos deputados na ponta das arestas
+            deputy_1 = self.getDeputyInfo(edge[0])
+            deputy_2 = self.getDeputyInfo(edge[1])
+            # verifica o valor dos deputados para o atributo de homofilia selecionado
+            att_1 = deputy_1[1][attribute]
+            att_2 = deputy_2[1][attribute]
+
+            # peso da aresta, que podera ou nao ser considerado
+            weight = edge[2]['weight']
+
+            # monta dinamicamente a matriz de adjacencia em um dicionario
+            if(att_1 not in mix_dict):
+                mix_dict[att_1] = max(mix_dict.values(), default=-1) + 1
+            if(att_2 not in mix_dict):
+                mix_dict[att_2] = max(mix_dict.values(), default=-1) + 1
+
+            tuple_1 = (mix_dict[att_1], mix_dict[att_2])
+            tuple_2 = (mix_dict[att_2], mix_dict[att_1])
+
+            if(weighted):
+                relationship_force = weight
+            else:
+                relationship_force = 1
+
+            if(tuple_1 in matrix_dict):
+                matrix_dict[tuple_1] += relationship_force
+            else:
+                matrix_dict[tuple_1] = relationship_force
+
+            if(tuple_2 in matrix_dict):
+                matrix_dict[tuple_2] += relationship_force
+            else:
+                matrix_dict[tuple_2] = relationship_force
+        
+        # monta a matrix no formato de arrays e normaliza os valores
+        matrix_size = len(mix_dict.keys())
+        matrix = np.zeros((matrix_size, matrix_size))
+
+        for i in range(matrix_size):
+            for j in range(matrix_size):
+                if (i, j) in matrix_dict:
+                    matrix[i][j] = matrix_dict[(i,j)]
+                else:
+                    matrix[i][j] = 0
+
+        # converte valores totais para porcentagem
+        if(norm):
+            for i in range(matrix_size):
+                row_sum = np.sum(matrix[i])
+                for j in range(matrix_size):
+                    matrix[i][j] = matrix[i][j]/row_sum
+        
+        return matrix, mix_dict
+
+    def getHeterogeneity(self, het_attributes=['uf', 'party'], norm=False):
+        heterogeneity = {}
+        for att in het_attributes:
+            w_jaccard = self.getWeightedJaccard(att, norm)
+            expected_homophily = self.getExpectedHomophily(att, norm)
+            for deputy_id in list(w_jaccard.keys()):
+                if(deputy_id in heterogeneity):
+                    heterogeneity[deputy_id] += (
+                        w_jaccard[deputy_id] - expected_homophily[deputy_id])/max(1, expected_homophily[deputy_id])
+                else:
+                    heterogeneity[deputy_id] = (
+                        w_jaccard[deputy_id] - expected_homophily[deputy_id])/max(1, expected_homophily[deputy_id])       
+        return heterogeneity
+
+    def getExpectedHomophily(self, homophily_attribute, norm=False):
+        '''
+        Calcula o valor esperado de homofilia para um vétice, dados seus atributos
+        Pensar em como implementar essse método
+        '''
+
+        nodes_edge_weights = self.getSumEdgeWeights()
+        # valor esperado da soma dos pesos para vértices com o atributo de homofilia fornecido como argumento
+        expected_weight = {}
+        expected_homophily = {}
+        expected_degree = self.countNodesByAttribute()[homophily_attribute]
+        expected_degree = {k: v / self.getNumberOfNodes() for k, v in expected_degree.items()}
+        expected_edge_weights = self.getExpectedWeightByAttribute(homophily_attribute)
+        for node in self.graph.nodes(data=True):
+            node_id = node[0]
+            attribute_name = node[1][homophily_attribute]
+            sum_edges_weights = nodes_edge_weights[node_id]
+            node_degree = max(self.graph.degree()[str(node_id)], 1)
+            if(node_id in expected_weight):
+                expected_weight[node_id] = sum_edges_weights * expected_edge_weights[attribute_name]
+                w_mean = sum_edges_weights/node_degree
+                # valor esperado do peso dividido pelo valor esperado do numero de vizinhos com aquele atributo
+                w_mean_homophily = expected_weight[node_id] / (max(1, node_degree * expected_degree[node_id]))
+                expected_homophily[node_id] = (w_mean_homophily - w_mean) / max(w_mean, 1)
+            else:
+                # vértices de grau zero
+                expected_homophily[node_id] = 0
+        return expected_homophily
+
     def jaccardByAttribute(self, attribute_id):
         '''
         Coeficiente de Jaccard condicionado a algum dos atibutos da rede
@@ -337,364 +712,3 @@ class GraphAnalysis:
                 )
 
         return jaccard_dict
-
-    def countNodesByAttribute(self):
-        '''
-        Retorna um dicionário de dicionários, com o número de vértices que possui cada um dos subgrupos possíveis
-        de cada atributo.
-
-        Por exemplo, nesse dicionário temos a chave ¨party¨, que possui como valor um dicionário em que cada chave é
-        um partido político e o valor é o número de deputados com aquele partido na rede.
-        '''
-        count_attributes = {}
-        attributes_list = ['age_range', 'education', 'party', 'sex', 'uf', 'ethnicity', 'education_tse']
-
-        for att in attributes_list:
-            count_attributes[att] = {}
-
-        for node in self.graph.nodes(data=True):
-            try:
-                    for node_att in list(node[1].items()):
-                        node_att_name = node_att[0]
-                        node_att_value = node_att[1]
-                        if node_att_name in attributes_list:
-                            if(node_att_value in count_attributes[node_att_name]):
-                                count_attributes[node_att_name][node_att_value] += 1
-                            else:
-                                count_attributes[node_att_name][node_att_value] = 1
-            except:
-                pass
-
-        return count_attributes
-
-    def getHeterogeneity(self, het_attributes=['uf', 'party'], norm=False):
-        heterogeneity = {}
-        for att in het_attributes:
-            w_jaccard = self.getWeightedJaccard(att, norm)
-            expected_homophily = self.getExpectedHomophily(att, norm)
-            for deputy_id in list(w_jaccard.keys()):
-                if(deputy_id in heterogeneity):
-                    heterogeneity[deputy_id] += (
-                        w_jaccard[deputy_id] - expected_homophily[deputy_id])/max(1, expected_homophily[deputy_id])
-                else:
-                    heterogeneity[deputy_id] = (
-                        w_jaccard[deputy_id] - expected_homophily[deputy_id])/max(1, expected_homophily[deputy_id])       
-        return heterogeneity
-
-    def getSumEdgeWeights(self):
-        """
-        Retorna dicionário com a soma dos pesos das arestas incidentes a cada vértice
-        """
-        weights = {}
-        for node in self.graph.nodes(data=True):
-            node_id = node[0]
-            node_edge_weights = 0
-            for neighbor in self.graph.neighbors(node_id):
-                node_edge_weights += self.graph[node_id][neighbor]['weight']
-            weights[node_id] = node_edge_weights
-        return weights
-
-    def getExpectedWeightByAttribute(self, homophily_attribute, norm=True):
-        '''
-        Calcula o valor esperado da distribuição de pesos de arestas incidentes por atributo do vértice
-        '''
-        attribute_edges_weight = {}
-        graph_edge_weight = 0
-        for edge in self.graph.edges(data=True):
-            node_att_1 = self.getNodeAttribute(edge[0], homophily_attribute)
-            node_att_2 = self.getNodeAttribute(edge[1], homophily_attribute)
-            edge_weight = edge[2]['weight']
-
-            graph_edge_weight += edge_weight
-
-            if(node_att_1 in attribute_edges_weight):
-                attribute_edges_weight[node_att_1] += edge_weight
-            else:
-                attribute_edges_weight[node_att_1] = edge_weight
-
-            if(node_att_2 in attribute_edges_weight):
-                attribute_edges_weight[node_att_2] += edge_weight
-            else:
-                attribute_edges_weight[node_att_2] = edge_weight
-
-        if(norm):
-            attribute_edges_weight = {k: (v/2) / graph_edge_weight for k, v in attribute_edges_weight.items()}
-
-        return attribute_edges_weight
-
-    def getExpectedHomophily(self, homophily_attribute, norm=False):
-        '''
-        Calcula o valor esperado de homofilia para um vétice, dados seus atributos
-        Pensar em como implementar essse método
-        '''
-
-        nodes_edge_weights = self.getSumEdgeWeights()
-        # valor esperado da soma dos pesos para vértices com o atributo de homofilia fornecido como argumento
-        expected_weight = {}
-        expected_homophily = {}
-        expected_degree = self.countNodesByAttribute()[homophily_attribute]
-        expected_degree = {k: v / self.getNumberOfNodes() for k, v in expected_degree.items()}
-        expected_edge_weights = self.getExpectedWeightByAttribute(homophily_attribute)
-        for node in self.graph.nodes(data=True):
-            node_id = node[0]
-            attribute_name = node[1][homophily_attribute]
-            sum_edges_weights = nodes_edge_weights[node_id]
-            node_degree = max(self.graph.degree()[str(node_id)], 1)
-            if(node_id in expected_weight):
-                expected_weight[node_id] = sum_edges_weights * expected_edge_weights[attribute_name]
-                w_mean = sum_edges_weights/node_degree
-                # valor esperado do peso dividido pelo valor esperado do numero de vizinhos com aquele atributo
-                w_mean_homophily = expected_weight[node_id] / (max(1, node_degree * expected_degree[node_id]))
-                expected_homophily[node_id] = (w_mean_homophily - w_mean) / max(w_mean, 1)
-            else:
-                # vértices de grau zero
-                expected_homophily[node_id] = 0
-        return expected_homophily
-
-    def plotMixPattern(self, attribute, attribute_value):
-        mix_dict = nx.attribute_mixing_dict(self.graph, attribute)
-        norm_mix = self.mixingDictingToProb(mix_dict)
-
-        # O atributo abaixo define o valor de atributo que desejamos analisar o padrão de mixagem
-        # por exemplo, mixagem para o partido PT ou para o sexo Masculino
-        D = norm_mix[attribute_value]
-
-        plt.bar(range(len(D)), list(D.values()), align='center')
-        plt.xticks(range(len(D)), list(D.keys()), rotation='vertical')
-
-        plt.show()
-
-    def adjMatrix(self, weighted=False):
-        size = len(self.graph.nodes())
-        adj_matrix = np.zeros((size, size))
-        matrix_map = {}
-        matrix_map['index_to_dep'] = {}
-        count = 0
-
-        for deputy_id in self.graph.nodes():
-            matrix_map[deputy_id] = count
-            matrix_map['index_to_dep'][count] = deputy_id
-            count += 1
-        for edge in self.graph.edges(data=True):
-            deputy_1 = edge[0]
-            deputy_2 = edge[1]
-            if(weighted):
-                weight = edge[2]['weight']
-            else:
-                weight = 1
-
-            adj_matrix[matrix_map[deputy_1]][matrix_map[deputy_2]] += weight
-            adj_matrix[matrix_map[deputy_2]][matrix_map[deputy_1]] += weight
-        return adj_matrix, matrix_map
-
-    def joinEdgesAttFraction(self, attribute, adj_matrix, m_map):
-        # total_weight retorma 2m, porem nao vamos iterar sobre as arestas duas vezes
-        total_weight = adj_matrix.sum() / 2
-        result = {}
-        for edge in self.graph.edges():
-            d1 = edge[0]
-            d2 = edge[1]
-            deputy_1 = self.getDeputyInfo(d1)
-            deputy_2 = self.getDeputyInfo(d2)
-            att_1 = deputy_1[1][attribute]
-            att_2 = deputy_2[1][attribute]
-
-            if(att_1 not in result):
-                result[att_1] = 0
-            if(att_1 == att_2):
-                result[att_1] += adj_matrix[m_map[d1]][m_map[d2]]
-
-        normalized_result = {k: v / total_weight for k, v in result.items()}
-        return normalized_result
-
-    def incidenceEdgesAttFraction(self, attribute, weighted=False):
-        result = {}
-        weights = self.getSumEdgeWeights()
-        total_weight = 0
-        for node in self.graph.nodes(data=True):
-            deputy_id = node[0]
-            deputy_att = node[1][attribute]
-
-            if(weighted):
-                weight = weights[deputy_id]
-            else:
-                weight = len(self.graph.neighbors(deputy_id))
-
-            total_weight += weight
-
-            if(deputy_att in result):
-                result[deputy_att] += weight
-            else:
-                result[deputy_att] = weight
-
-        normalized_result = {k: v / total_weight for k, v in result.items()}
-        return normalized_result
-
-    def modularity(self, attribute, weighted=False):
-        adj_matrix, m_map = self.adjMatrix(weighted)
-        modularity_result = {}
-        e_r = self.joinEdgesAttFraction(attribute, adj_matrix, m_map)
-        a_r = self.incidenceEdgesAttFraction(attribute, weighted)
-
-        att_possibilies = list(e_r.keys())
-        att_modularity = 0
-        for att in att_possibilies:
-            modularity_result[att] = e_r[att] - pow(a_r[att], 2)
-            att_modularity += modularity_result[att]
-
-        return att_modularity, modularity_result
-
-    def modularitySummary(self, attributes_to_analyse=None, weighted=False):
-        if(attributes_to_analyse is not None):
-            attributes_to_analyse = self.getNodeAttributeNames()
-
-        attribute_modularity = {}
-        for attribute in attributes_to_analyse:
-            modularity = self.modularity(attribute, weighted)
-            attribute_modularity[attribute] = modularity
-
-        return attribute_modularity
-
-    def nodesModularityByAttribute(self, attribute, weighted=False):
-        network_result = {}
-        nodes_att = {}
-        for node in self.graph.nodes(data=True):
-            node_id = node[0]
-            base_attribute_value = node[1][attribute]
-            nodes_att[node_id] = base_attribute_value
-            w_homo = 0
-            w_total = 0
-            for neighbor_id in self.graph.neighbors(node_id):
-                edge_weigth = self.graph[node_id][neighbor_id]['weight']
-                neighbor = self.graph.node[neighbor_id]
-
-                if(weighted is True):
-                    weight = edge_weigth
-                else:
-                    weight = 1
-
-                w_total += weight
-                if(attribute in neighbor):                  
-                    if(neighbor[attribute] == base_attribute_value):
-                        w_homo += weight
-
-            if(w_total > 0):
-                network_result[node_id] = w_homo/w_total
-            else:
-                network_result[node_id] = None
-
-        result = {}
-        expected_distribution = self.getExpectedWeightByAttribute(attribute)
-
-        for key, value in network_result.items():
-            if(value is not None):
-                result[key] = value - expected_distribution[nodes_att[key]]
-            else:
-                result[key] = None
-
-        return result
-
-    def nodesModularity(self, use_weight=False, attributes_to_analyse=None):
-        if(attributes_to_analyse is not None):
-            attributes_to_analyse = self.getNodeAttributeNames()
-
-        nodes_modularity = {}
-
-        # ignora vertices de grau zero
-        node_degrees = self.graph.degree()
-        for key, value in node_degrees.items():
-            if(value != 0):
-                nodes_modularity[key] = 0
-
-        for attribute in attributes_to_analyse:
-            modularity = self.nodesModularityByAttribute(attribute, weighted=use_weight)
-            for key, value in nodes_modularity.items():
-                nodes_modularity[key] += modularity[key]
-
-        return nodes_modularity
-
-    def mixingMatrix(self, attribute, weighted=False, norm=True):
-        mix_dict = {}
-        matrix_dict = {}
-        # itera nas arestas da rede
-        for edge in self.graph.edges(data=True):
-            # coleta informacoes dos deputados na ponta das arestas
-            deputy_1 = self.getDeputyInfo(edge[0])
-            deputy_2 = self.getDeputyInfo(edge[1])
-            # verifica o valor dos deputados para o atributo de homofilia selecionado
-            att_1 = deputy_1[1][attribute]
-            att_2 = deputy_2[1][attribute]
-
-            # peso da aresta, que podera ou nao ser considerado
-            weight = edge[2]['weight']
-
-            # monta dinamicamente a matriz de adjacencia em um dicionario
-            if(att_1 not in mix_dict):
-                mix_dict[att_1] = max(mix_dict.values(), default=-1) + 1
-            if(att_2 not in mix_dict):
-                mix_dict[att_2] = max(mix_dict.values(), default=-1) + 1
-
-            tuple_1 = (mix_dict[att_1], mix_dict[att_2])
-            tuple_2 = (mix_dict[att_2], mix_dict[att_1])
-
-            if(weighted):
-                relationship_force = weight
-            else:
-                relationship_force = 1
-
-            if(tuple_1 in matrix_dict):
-                matrix_dict[tuple_1] += relationship_force
-            else:
-                matrix_dict[tuple_1] = relationship_force
-
-            if(tuple_2 in matrix_dict):
-                matrix_dict[tuple_2] += relationship_force
-            else:
-                matrix_dict[tuple_2] = relationship_force
-        
-        # monta a matrix no formato de arrays e normaliza os valores
-        matrix_size = len(mix_dict.keys())
-        matrix = np.zeros((matrix_size, matrix_size))
-
-        for i in range(matrix_size):
-            for j in range(matrix_size):
-                if (i, j) in matrix_dict:
-                    matrix[i][j] = matrix_dict[(i,j)]
-                else:
-                    matrix[i][j] = 0
-
-        # converte valores totais para porcentagem
-        if(norm):
-            for i in range(matrix_size):
-                row_sum = np.sum(matrix[i])
-                for j in range(matrix_size):
-                    matrix[i][j] = matrix[i][j]/row_sum
-        
-        return matrix, mix_dict
-
-    def plotDegreeDistribution(self, color='#7394CB'):
-        data = nx.degree_histogram(self.graph)
-        labels = {"title": 'CCDF grau dos vértices', 'xlabel': 'número de coautores', 'ylabel': '% de deputados'}
-        self.plotDistributionCCDF(data, labels, color)
-
-    def plotWeightDistribution(self, color='#7394CB'):
-        weights = list(self.getSumEdgeWeights().values())
-        data = np.zeros(int(max(weights)))
-        for i in range(len(data)):
-            i_count = weights.count(i)
-            data[i] = i_count
-        labels = {"title": 'CCDF do peso de arestas incidentes', 'xlabel': 'peso incidente', 'ylabel': '% de deputados'}
-        self.plotDistributionCCDF(data, labels, color)
-
-    def plotDistributionCCDF(self, data, labels, color='#7394CB'):
-        cumulative = np.cumsum(data)
-        ccdf = []
-        for element in cumulative:
-            prob = (element - cumulative[0])/(max(cumulative)-min(cumulative))
-            ccdf.append(1 - prob)    
-        label = list(range(len(data)))
-        plt.plot(label, ccdf, color=color)
-        plt.title(labels['title'])
-        plt.xlabel(labels['xlabel'])
-        plt.ylabel(labels['ylabel'])
-        plt.show()

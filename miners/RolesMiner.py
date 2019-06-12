@@ -1,4 +1,4 @@
-from AbstractMiner import Miner
+from .AbstractMiner import Miner
 import pandas as pd
 import requests
 import csv

@@ -3,7 +3,7 @@
 # Authors info can be easly obteined acessing https://dadosabertos.camara.leg.br/swagger/api.html#staticfile
 # the snippet below works, but takes a lot of time
 
-from AbstractMiner import Miner
+from .AbstractMiner import Miner
 import http.client
 import requests
 import xml.etree.ElementTree as ET
@@ -11,11 +11,11 @@ import pandas as pd
 import sys
 import ast
 from bs4 import BeautifulSoup
-from utils import addProposalType
-from utils import addProposalYear
-from utils import addProposalSituation
-from utils import addStatus
-from utils import printProgressBar
+from .utils import addProposalType
+from .utils import addProposalYear
+from .utils import addProposalSituation
+from .utils import addStatus
+from .utils import printProgressBar
 
 
 class APIProposalMiner(Miner):
