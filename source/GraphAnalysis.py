@@ -6,9 +6,9 @@ import collections
 import matplotlib.pyplot as plt
 import copy
 import pandas as pd
-from .utils import reject_outliers
-from .utils import generateNodePairs
-from .utils import getThresholdCounts
+from utils import reject_outliers
+from utils import generateNodePairs
+from utils import getThresholdCounts
 
 
 class GraphAnalysis:
@@ -349,7 +349,7 @@ class GraphAnalysis:
         return att_modularity, modularity_result
 
     def modularitySummary(self, attributes_to_analyse=None, weighted=False):
-        if(attributes_to_analyse is not None):
+        if(attributes_to_analyse is None):
             attributes_to_analyse = self.getNodeAttributeNames()
 
         attribute_modularity = {}
@@ -501,6 +501,38 @@ class GraphAnalysis:
         plt.bar(range(len(D)), list(D.values()), align='center')
         plt.xticks(range(len(D)), list(D.keys()), rotation='vertical')
 
+        plt.show()
+
+    def plotDict(self, dict, labels=None, bar_color='#7394CB', y_extra_ticks=None, x_grid=False, y_grid=False, save=False, fill_gap=False, use_x_ticks=True):
+        fig = plt.gcf()
+        plt.rcParams["font.family"] = "Helvetica"
+        plt.rcParams['axes.titlepad'] = 20
+
+        if (fill_gap):
+            barlist = plt.bar(range(len(dict)), list(dict.values()), align='center', color=bar_color, width=1.0)
+        else:
+            barlist = plt.bar(range(len(dict)), list(dict.values()), align='center', color=bar_color)
+
+        if(use_x_ticks):
+            plt.xticks(range(len(dict)), list(dict.keys()), rotation=90)
+
+        if(y_extra_ticks is not None):
+            plt.yticks(list(plt.yticks()[0]) + y_extra_ticks)
+
+        if(x_grid and y_grid):
+            plt.grid(True, ls='dashed')
+        elif(x_grid):
+            plt.grid(axis='x', ls='dashed')
+        elif(y_grid):
+            plt.grid(axis='y', ls='dashed')
+
+        if(labels is not None):
+            plt.title(labels['title'])
+            plt.xlabel(labels['xlabel'])
+            plt.ylabel(labels['ylabel'])
+        if(save):
+            plt.draw()
+            fig.savefig('./images/' + labels['title'] + ".png", dpi=100, bbox_inches="tight")
         plt.show()
 
 ################################################################
